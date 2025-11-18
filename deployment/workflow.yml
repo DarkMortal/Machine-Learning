@@ -1,0 +1,148 @@
+name: Deploy Jupyter Notebooks to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install nbconvert
+        run: |
+          python -m pip install --upgrade pip
+          pip install nbconvert jupyter
+
+      # -------------------------------------------------
+      # 1. Convert .ipynb → .html (preserve folder tree)
+      # -------------------------------------------------
+      - name: Convert notebooks to HTML
+        run: |
+          find . -name '*.ipynb' -not -path './.github/*' -not -path './_site/*' | while read nb; do
+            dir=$(dirname "$nb")
+            base=$(basename "$nb" .ipynb)
+            mkdir -p "_site/$dir"
+            jupyter nbconvert --to html \
+              --output-dir "_site/$dir" \
+              --output "$base.html" \
+              "$nb"
+          done
+
+      # -------------------------------------------------
+      # 2. Generate a dropdown-style index.html
+      # -------------------------------------------------
+      - name: Generate index.html
+        run: |
+          cat > _site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Jupyter Notebooks</title>
+            <style>
+              :root { --indent: 1.8rem; }
+              body {font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 2rem; line-height: 1.6; background:#ffffff; color:#1a1a1a;}
+              h1 {color:#2c3e50; margin-bottom:1.5rem; font-size:1.8rem;}
+              details {margin: 0.2rem 0;}
+              summary {
+                font-weight: 600; color: #2980b9; cursor: pointer; list-style: none; padding: 0.25rem 0;
+                position: relative; padding-left: var(--indent);
+              }
+              summary::before {
+                content: "→  "; position: absolute; left: 0; font-size: 1rem; width: 1.2rem; text-align: center;
+              }
+              details[open] > summary::before { content: "↓  "; }
+              summary::-webkit-details-marker { display: none; }
+              ul {margin: 0.4rem 0 0.4rem calc(var(--indent)); padding: 0; list-style: none;}
+              li {margin: 0.3rem 0; position: relative; padding-left: 1.4rem;}
+              li::before {content: "•"; color: #7f8c8d; position: absolute; left: 0; font-weight: bold;}
+              a {color: #2980b9; text-decoration: none; font-family: 'Courier New', monospace; font-size: 0.95rem;}
+              a:hover {text-decoration: underline; color: #1a73e8;}
+            </style>
+          </head>
+          <body>
+            <h1>Jupyter Notebooks</h1>
+            <ul id="tree">
+          EOF
+
+          # === BUILD TREE BY PATH PREFIX ===
+          # Sort all paths: folders first, then files
+          {
+            find _site -type d | sed 's|^_site/||' | sort
+            find _site -name '*.html' -not -name 'index.html' | sed 's|^_site/||' | sort
+          } | awk '
+          BEGIN { print "<!-- TREE START -->" }
+          {
+            gsub(/\/\//, "/")
+            if ($0 ~ /\/$/) { type="dir"; sub(/\/$/, "", $0) } else type="file"
+            print type "|" $0
+          }
+          ' | sort -t'|' -k2 | cut -d'|' -f2- | \
+          while IFS= read -r path; do
+            if [[ -d "_site/$path" ]]; then
+              # Folder
+              name=$(basename "$path")
+              depth=$(echo "$path" | tr -cd '/' | wc -c)
+              indent=$((depth * 2))
+              printf '%*s<details><summary>%s/</summary><ul>\n' "$indent" "" "$name"
+            else
+              # File
+              name=$(basename "$path")
+              dir=$(dirname "$path")
+              depth=$(echo "$dir" | tr -cd '/' | wc -c)
+              indent=$(( (depth + 1) * 2 ))
+              printf '%*s<li><a href="%s">%s</a></li>\n' "$indent" "" "$path" "$name"
+            fi
+          done >> _site/index.html
+
+          # === CLOSE ALL TAGS IN REVERSE ORDER ===
+          find _site -type d | sed 's|^_site/||' | sort -r | while read dir; do
+            [[ "$dir" == "." ]] && continue
+            depth=$(echo "$dir" | tr -cd '/' | wc -c)
+            indent=$((depth * 2))
+            printf '%*s</ul></details>\n' "$indent" ""
+          done >> _site/index.html
+
+          # End HTML
+          cat >> _site/index.html <<'EOF'
+            </ul>
+          </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site/'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
