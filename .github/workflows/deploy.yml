@@ -52,7 +52,7 @@ jobs:
       - name: Generate index.html
         run: |
           LAST_UPDATED="$(TZ=Asia/Kolkata date '+%d %b, %Y %I:%M %p')";
-          cat > _site/index.html <<'EOF'
+          cat > _site/index.html <<EOF
           <!DOCTYPE html>
           <html lang="en">
           <head>
