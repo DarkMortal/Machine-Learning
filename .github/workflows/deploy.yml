@@ -197,10 +197,24 @@ jobs:
           BEGIN { }
           {
             gsub(/\/\//, "/")
-            if ($0 ~ /\/$/) { type="dir"; sub(/\/$/, "", $0) } else type="file"
-            print type "|" $0
+
+            if ($0 ~ /\/$/) {
+              type="dir"
+              sub(/\/$/, "", $0)
+            } else {
+              type="file"
+            }
+          
+            path = $0
+            name = path
+            sub(".*/", "", name)   # extract basename
+          
+            # priority = length of the name (shorter first)
+            priority = length(name)
+          
+            print priority "|" type "|" path
           }
-          ' | sort -t'|' -k2 | cut -d'|' -f2- | \
+          ' sort -t'|' -k2,2 -k1,1 | cut -d'|' -f2- | \
           while IFS= read -r path; do
             depth=$(echo "$path" | tr -cd '/' | wc -c)
             while (( prev_depth > depth )); do
