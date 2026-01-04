@@ -212,7 +212,7 @@ jobs:
               # Folder
               name=$(basename "$path")
               prev_depth=$((prev_depth + 1))
-              printf '%*s<details><summary>%s/</summary><ul>\n' "$fileIndent" "" "$name"
+              printf '%*s<details><summary>%s</summary><ul>\n' "$dirIndent" "" "$name"
             else
               # File
               name=$(basename "$path")
